@@ -1,58 +1,40 @@
 name: Release
+
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ['v*']                     # se déclenche sur un tag v1.0.0, v1.1.0…
+
 permissions:
-  contents: read
+  contents: write                    # pour créer la release GitHub
+  packages: write                    # pour pousser l'image sur GHCR
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write     # créer la GitHub Release
-      packages: write     # pousser l'image
+    env:
+      VERSION: ${{ github.ref_name }}      # le nom du tag, ex. v1.0.0
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=stable
 
-      - name: Construire l'image candidate (sans la pousser)
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          load: true
-          tags: candidate:local
-          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+      - name: Construire l'image
+        run: docker build -t app --build-arg APP_VERSION="$VERSION" .
 
-      - name: Smoke test en conditions de production
+      - name: Test de démarrage en mode production
         run: |
-          docker run -d --name app -p 3000:3000 -e APP_ENV=production candidate:local
-          for i in $(seq 1 10); do
-            curl -fsS http://localhost:3000/health && exit 0
-            sleep 2
-          done
-          echo "L'application ne démarre pas :"; docker logs app; exit 1
+          docker run -d -p 3000:3000 -e APP_ENV=production app
+          sleep 5
+          curl --fail http://localhost:3000/health
 
-      - name: Publier (seulement si le smoke test est vert)
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+      - name: Publier l'image sur GHCR
+        run: |
+          # GHCR exige un nom en minuscules : Mon-Login/Mon-Depot → mon-login/mon-depot
+          IMAGE="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag app "$IMAGE:$VERSION"
+          docker tag app "$IMAGE:stable"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:stable"
 
-      - uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
+      - name: Créer la release GitHub
+        run: gh release create "$VERSION" --generate-notes
