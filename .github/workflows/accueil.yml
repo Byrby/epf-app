@@ -1,0 +1,30 @@
+# ⚠️ DÉMO TP5-F — workflow VOLONTAIREMENT VULNÉRABLE à l'injection de script.
+# Ne fusionner sur main que le temps de la démonstration, avec un secret DEMO_SECRET bidon,
+# puis remplacer par la version corrigée (en bas de fichier) ou supprimer.
+name: Accueil
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  accueil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+    steps:
+      - run: |
+          echo "Nouvelle issue : ${{ github.event.issue.title }}"
+
+# Titre d'issue piégé pour la démo :
+#   x"; echo "::warning::code exécuté : $(whoami)"; echo "$DEMO_SECRET" | sed 's/./& /g'; echo "
+#
+# Version corrigée :
+#     steps:
+#       - env:
+#           TITLE: ${{ github.event.issue.title }}
+#         run: |
+#           echo "Nouvelle issue : $TITLE"
